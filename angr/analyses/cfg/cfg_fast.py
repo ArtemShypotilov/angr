@@ -3355,15 +3355,19 @@ class CFGFast(ForwardAnalysis, CFGBase):    # pylint: disable=abstract-method
                         self._arch_options.switch_mode_on_nodecode:
                     # maybe the current mode is wrong?
                     nodecode = False
+                    if addr % 2 == 0:
+                        addr_0 = addr + 1
+                    else:
+                        addr_0 = addr - 1
 
-                    if real_addr in self._nodes:
+                    if addr_0 in self._nodes:
                         # it has been analyzed before
-                        cfg_node = self._nodes[real_addr]
+                        cfg_node = self._nodes[addr_0]
                         irsb = cfg_node.irsb
-                        return real_addr, cfg_node.function_address, cfg_node, irsb
+                        return addr_0, cfg_node.function_address, cfg_node, irsb
 
                     try:
-                        lifted_block = self._lift(real_addr, size=distance)
+                        lifted_block = self._lift(addr_0, size=distance)
                         irsb = lifted_block.vex
                         irsb_string = lifted_block.bytes[:irsb.size]
                     except SimTranslationError:
@@ -3372,8 +3376,8 @@ class CFGFast(ForwardAnalysis, CFGBase):    # pylint: disable=abstract-method
                     if not (nodecode or irsb.size == 0 or irsb.jumpkind == 'Ijk_NoDecode'):
                         # it is decodeable
                         if current_function_addr == addr:
-                            current_function_addr = real_addr
-                        addr = real_addr
+                            current_function_addr = addr_0
+                        addr = addr_0
 
                 if nodecode or irsb.size == 0 or irsb.jumpkind == 'Ijk_NoDecode':
                     # decoding error
