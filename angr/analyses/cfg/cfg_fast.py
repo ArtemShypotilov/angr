@@ -3303,6 +3303,13 @@ class CFGFast(ForwardAnalysis, CFGBase):    # pylint: disable=abstract-method
 
             else:
 
+                is_arm_arch = True if self.project.arch.name in ('ARMHF', 'ARMEL') else False
+
+                if is_arm_arch:
+                    real_addr = addr & (~1)
+                else:
+                    real_addr = addr
+
                 # if possible, check the distance between `addr` and the end of this section
                 distance = None
                 obj = self.project.loader.find_object_containing(addr)
@@ -3317,7 +3324,7 @@ class CFGFast(ForwardAnalysis, CFGBase):    # pylint: disable=abstract-method
                         if not section.is_executable:
                             # the section is not executable...
                             return None, None, None, None
-                        distance = section.vaddr + section.memsize - addr
+                        distance = section.vaddr + section.memsize - real_addr
                         distance = min(distance, VEX_IRSB_MAX_SIZE)
                     # TODO: handle segment information as well
 
@@ -3325,7 +3332,7 @@ class CFGFast(ForwardAnalysis, CFGBase):    # pylint: disable=abstract-method
                 # we don't want to have a basic block that spans across function boundaries
                 next_func = self.functions.ceiling_func(addr)
                 if next_func is not None:
-                    distance_to_func = next_func.addr - addr
+                    distance_to_func = (next_func.addr & (~1) if is_arm_arch else next_func.addr) - real_addr
                     if distance_to_func != 0:
                         if distance is None:
                             distance = distance_to_func
@@ -3344,23 +3351,19 @@ class CFGFast(ForwardAnalysis, CFGBase):    # pylint: disable=abstract-method
                     nodecode = True
 
                 if (nodecode or irsb.size == 0 or irsb.jumpkind == 'Ijk_NoDecode') and \
-                        self.project.arch.name in ('ARMHF', 'ARMEL') and \
+                        is_arm_arch and \
                         self._arch_options.switch_mode_on_nodecode:
                     # maybe the current mode is wrong?
                     nodecode = False
-                    if addr % 2 == 0:
-                        addr_0 = addr + 1
-                    else:
-                        addr_0 = addr - 1
 
-                    if addr_0 in self._nodes:
+                    if real_addr in self._nodes:
                         # it has been analyzed before
-                        cfg_node = self._nodes[addr_0]
+                        cfg_node = self._nodes[real_addr]
                         irsb = cfg_node.irsb
-                        return addr_0, cfg_node.function_address, cfg_node, irsb
+                        return real_addr, cfg_node.function_address, cfg_node, irsb
 
                     try:
-                        lifted_block = self._lift(addr_0, size=distance)
+                        lifted_block = self._lift(real_addr, size=distance)
                         irsb = lifted_block.vex
                         irsb_string = lifted_block.bytes[:irsb.size]
                     except SimTranslationError:
@@ -3369,8 +3372,8 @@ class CFGFast(ForwardAnalysis, CFGBase):    # pylint: disable=abstract-method
                     if not (nodecode or irsb.size == 0 or irsb.jumpkind == 'Ijk_NoDecode'):
                         # it is decodeable
                         if current_function_addr == addr:
-                            current_function_addr = addr_0
-                        addr = addr_0
+                            current_function_addr = real_addr
+                        addr = real_addr
 
                 if nodecode or irsb.size == 0 or irsb.jumpkind == 'Ijk_NoDecode':
                     # decoding error
@@ -3385,12 +3388,9 @@ class CFGFast(ForwardAnalysis, CFGBase):    # pylint: disable=abstract-method
                 is_thumb = False
                 # Occupy the block in segment list
                 if irsb.size > 0:
-                    if self.project.arch.name in ('ARMHF', 'ARMEL') and addr % 2 == 1:
+                    if is_arm_arch and addr % 2 == 1:
                         # thumb mode
-                        real_addr = addr - 1
                         is_thumb=True
-                    else:
-                        real_addr = addr
                     self._seg_list.occupy(real_addr, irsb.size, "code")
 
                 # Create a CFG node, and add it to the graph
